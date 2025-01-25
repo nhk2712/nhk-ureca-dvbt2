@@ -10,7 +10,10 @@ rotAngle = pi/2;   % Rotation angle in radians
 dataIn = randi([0 1],N*k,1);        % Generate vector of binary data
 dataSymbolsIn = bit2int(dataIn,k);  % Convert Binary Data to Integer-Valued Symbols
 
-rayleighchan = comm.RayleighChannel; % Create Rayleigh fading channel
+rayleighchan = comm.RayleighChannel('SampleRate', 1, ...
+    'PathDelays', [0], ...
+    'AveragePathGains', [0],...
+    'PathGainsOutputPort', true); % Create Rayleigh fading channel
 
 % Modulation
 dataMod = qammod(dataSymbolsIn,M,'bin'); % Binary-encoded
@@ -21,20 +24,27 @@ sim_ber = zeros(1, length(EbNo));
 
 for ii = 1:length(EbNo)
     snr = convertSNR(EbNo(ii),'ebno', samplespersymbol=sps, bitspersymbol=k);
+    % snr = ebno + 10*log10((bps*R)/sps);
+    % bps = bits per symbol = k
+    % R = coding rate = 1 (by default)
+    % sps = samples per symbol
+    
+    % Add Rayleigh fading % Before AWGN
+    [fadedSignal, pathgains] = rayleighchan.step(dataMod);
     
     % Add AWGN noise
     % receivedSignal = awgn(dataModRot,snr,'measured');
-    receivedSignal = awgn(dataMod,snr,'measured');
-
-    % Add Rayleigh fading
-    fadedSignal = rayleighchan(receivedSignal);
+    noisySignal = awgn(fadedSignal,snr,'measured');
     
     % Undo rotation
     % receivedSignalUnrot = fadedSignal * exp(-1j * rotAngle);
+
+    % Equalize Rayleigh fading, need this before demodulation (remove channel effects)
+    equalizedSignal = noisySignal ./ pathgains;
     
     % Demodulation
     % dataSymbolsOut = qamdemod(receivedSignalUnrot,M,'bin'); % Binary-encoded data symbols
-    dataSymbolsOut = qamdemod(fadedSignal,M,'bin'); % Binary-encoded data symbols
+    dataSymbolsOut = qamdemod(equalizedSignal,M,'bin'); % Binary-encoded data symbols
     
     dataOut = int2bit(dataSymbolsOut,k); % Convert Integer-Valued Symbols to Binary Data
     [numErrors,ber] = biterr(dataIn,dataOut);
